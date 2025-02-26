@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono } from "next/font/google";
+import GoogleTagManager from '@/components/GoogleTagManager';
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,20 +17,12 @@ export const metadata = {
   description: "This is a app where you can contact me",
 };
 
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="icon" href="/favicon.ico" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="This is a app where you can contact me" />
-        <meta name="keywords" content="Krunal, Contact, Form, App" />
-        <meta name="author" content="Krunal" />
-        <meta name="robots" content="index, follow" />
-      </head>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body>
+        <GoogleTagManager gtmId="GTM-T7HGCDLT" />
         {children}
       </body>
     </html>
