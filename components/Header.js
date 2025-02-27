@@ -23,6 +23,7 @@ export default function Header() {
         <header className="py-4 px-6 bg-white shadow-sm sticky top-0 z-50">
             <div className="container mx-auto max-w-7xl">
                 <div className="flex items-center justify-between">
+
                     {/* Logo */}
                     <Link href="/" className="flex items-center">
                         <span className="text-xl font-bold text-gray-800">Portfolio</span>
