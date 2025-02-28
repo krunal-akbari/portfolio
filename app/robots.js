@@ -5,7 +5,7 @@ export default function robots() {
             allow: "/",
             disallow: "/private/",
         },
-        sitemap: "https://acme.com/sitemap.xml",
+        sitemap: "https://krunalakbari.in/sitemap.xml",
     };
 }
 
