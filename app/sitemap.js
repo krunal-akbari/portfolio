@@ -32,19 +32,19 @@ export default function sitemap() {
         },
         {
             url: "https://www.krunalakbari.in/process",
-            lastmodified: new date(),
+            lastmodified: new Date(),
             changefrequency: "weekly",
             priority: 0.5,
         },
         {
             url: "https://www.krunalakbari.in/faqs",
-            lastmodified: new date(),
+            lastmodified: new Date(),
             changefrequency: "weekly",
             priority: 0.5,
         },
         {
             url: "https://www.krunalakbari.in/projects/1",
-            lastmodified: new date(),
+            lastmodified: new Date(),
             changefrequency: "weekly",
             priority: 0.5,
         },
