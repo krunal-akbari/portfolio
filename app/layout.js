@@ -3,6 +3,8 @@ import GoogleTagManager from '@/components/GoogleTagManager';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import "./globals.css";
+import { SpeedInsights } from "@vercel/speed-insights/next"
+import { Analytics } from "@vercel/analytics/react"
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
@@ -26,6 +28,8 @@ export default function RootLayout({ children }) {
             <body>
                 <GoogleTagManager gtmId="GTM-T7HGCDLT" />
                 <Header />
+                <Analytics />
+                <SpeedInsights />
                 {children}
                 <Footer />
             </body>
