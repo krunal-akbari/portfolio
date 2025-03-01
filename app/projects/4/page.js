@@ -236,7 +236,7 @@ const ProjectDetailPage = () => {
                             <motion.div
                                 key={index}
                                 className={`w-20 h-20 rounded-lg overflow-hidden cursor-pointer ${currentImage === index ? 'ring-2 ring-indigo-500' : ''
-}`}
+                                    }`}
                                 initial={{ opacity: 0, y: 20 }}
                                 whileInView={{ opacity: 1, y: 0 }}
                                 transition={{ duration: 0.3, delay: 0.1 + index * 0.1 }}
@@ -527,7 +527,7 @@ const ProjectDetailPage = () => {
                                     <button
                                         key={index}
                                         className={`w-2.5 h-2.5 rounded-full ${lightboxImage === index ? 'bg-white' : 'bg-white/40'
-}`}
+                                            }`}
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             setLightboxImage(index);
@@ -544,4 +544,5 @@ const ProjectDetailPage = () => {
 };
 
 export default ProjectDetailPage;
+
 
