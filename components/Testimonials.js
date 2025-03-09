@@ -1,8 +1,7 @@
 'use client'
-import { useState, useRef, useEffect } from 'react';
-import { motion, useScroll, useTransform, useSpring, AnimatePresence } from 'framer-motion';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
-import Link from 'next/link';
 
 // Testimonials Section
 export default function TestimonialsSection({ setCursorVariant }) {
@@ -76,7 +75,7 @@ export default function TestimonialsSection({ setCursorVariant }) {
 
                 <div className="mt-6">
                   <p className="text-xl md:text-2xl text-gray-700 mb-8">
-                    "{testimonials[currentIndex].quote}"
+                    &quot;{testimonials[currentIndex].quote}&quot;
                   </p>
 
                   <div className="flex items-center">

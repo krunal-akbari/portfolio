@@ -35,22 +35,20 @@ export default function Footer() {
                     <div>
                         <h3 className="text-lg font-semibold mb-4">Get in Touch</h3>
                         <address className="not-italic">
-                            <p className="mb-3">123 Portfolio Street</p>
-                            <p className="mb-3">Design District, NY 10001</p>
+                            <p className="mb-3">100, Himmatnager</p>
+                            <p className="mb-3">Surat, Gujarat - 395006</p>
                             <p className="mb-3">
-                                <a
-                                    href="mailto:hello@portfolio.com"
-                                    className="hover:text-blue-400 transition-colors"
-                                >
-                                    hello@portfolio.com
+                                <a href="mailto:contact@krunalakbari.in"
+                                    className="hover:text-blue-400 transition-colors" >
+                                    contact@krunalakbari.in
                                 </a>
                             </p>
                             <p>
                                 <a
-                                    href="tel:+1234567890"
+                                    href="tel:+919662059086"
                                     className="hover:text-blue-400 transition-colors"
                                 >
-                                    (123) 456-7890
+                                    +91 9662059086
                                 </a>
                             </p>
                         </address>
