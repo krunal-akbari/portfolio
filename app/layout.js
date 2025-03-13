@@ -25,6 +25,9 @@ export const metadata = {
 export default function RootLayout({ children }) {
     return (
         <html lang="en">
+            <head>
+                <script src="https://analytics.ahrefs.com/analytics.js" data-key="MoaB2uD8lW8j1QABw5XksQ" async></script>
+            </head>
             <body>
                 <GoogleTagManager gtmId="GTM-T7HGCDLT" />
                 <Header />
