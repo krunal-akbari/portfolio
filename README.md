@@ -1,36 +1,99 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# Glass Planner (WorkOS Auth)
 
-## Getting Started
+A single-user task planner built with Next.js + WorkOS AuthKit.
 
-First, run the development server:
+## Features
+
+- WorkOS sign-in/sign-out
+- Single-user gate using `ALLOWED_EMAIL`
+- Jira-style task fields:
+  - title
+  - description
+  - priority (`low`, `medium`, `high`, `critical`)
+  - status (`todo`, `in_progress`, `done`)
+  - due date
+- Tabbed workspace (`Kanban`, `Calendar`, `Settings`)
+- Google Calendar + Apple Calendar sync controls in `Settings`
+
+## 1) Configure WorkOS
+
+In WorkOS Dashboard:
+
+- Create/use an AuthKit app
+- Add redirect URI: `http://localhost:3000/callback`
+- Add logout URI for your app
+- Copy `Client ID` and `API Key`
+
+## 2) Environment variables
+
+Copy `.env.example` to `.env.local`:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Set values (no quotes in env file):
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+```env
+WORKOS_CLIENT_ID=client_...
+WORKOS_API_KEY=sk_test_...
+WORKOS_COOKIE_PASSWORD=replace-with-a-32-plus-character-secret
+APP_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback
+ALLOWED_EMAIL=you@example.com
+CALENDAR_FEED_TOKEN=replace-with-a-random-long-secret
+TASKS_STORAGE_FILE=/tmp/glass-todo-tasks.json
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Notes:
 
-## Learn More
+- `WORKOS_COOKIE_PASSWORD` must be at least 32 characters.
+- `APP_BASE_URL` must match where you open the app.
+- `CALENDAR_FEED_TOKEN` enables external calendar subscription (Google/Apple) without browser auth.
 
-To learn more about Next.js, take a look at the following resources:
+## 3) Run locally
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm install
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open `http://localhost:3000`.
 
-## Deploy on Vercel
+## Docker
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Build and run:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+docker build -t glass-todo .
+docker run --rm -p 3000:3000 --env-file .env.local glass-todo
+```
+
+## Vercel (free tier)
+
+Works on Vercel free tier with standard Next.js config.
+
+1. Import repository in Vercel.
+2. Framework preset: `Next.js`.
+3. Add all env vars from `.env.example`.
+4. Set WorkOS redirect URI to your deployed callback URL:
+   - `https://your-project.vercel.app/callback`
+5. Set `APP_BASE_URL` and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` to your deployed domain.
+
+## Storage note
+
+Task data is stored in a JSON file (default `/tmp/glass-todo-tasks.json`).
+
+- Good for local/dev and single-instance Docker.
+- In serverless environments (including Vercel), `/tmp` is ephemeral and can reset between instances.
+- For durable production storage, connect a database.
+
+## Project structure
+
+- `middleware.ts`: AuthKit middleware
+- `src/app/callback/route.ts`: WorkOS callback handler
+- `src/app/api/tasks/*`: task CRUD API
+- `src/app/api/calendar/ics/route.ts`: ICS feed for calendar sync
+- `src/app/api/calendar/feed-url/route.ts`: feed/subscription URLs
+- `src/components/planner-app.tsx`: Kanban + calendar UI
+- `src/lib/task-store.ts`: JSON-backed task storage
