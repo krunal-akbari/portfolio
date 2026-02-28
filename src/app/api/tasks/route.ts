@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import { requireAllowedUser } from "@/lib/auth";
 import { createTask, listTasks } from "@/lib/task-store";
 import {
+  isTaskCategory,
   isTaskPriority,
   isTaskStatus,
+  type TaskCategory,
   type TaskInput,
   type TaskPriority,
   type TaskStatus,
@@ -14,6 +16,7 @@ export const runtime = "nodejs";
 
 const MAX_TITLE_LENGTH = 140;
 const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_IMAGE_URL_LENGTH = 2000;
 
 function normalizeText(value: unknown, maxLength: number) {
   if (typeof value !== "string") {
@@ -32,6 +35,15 @@ function normalizeDueDate(value: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim().slice(0, MAX_IMAGE_URL_LENGTH);
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parsePriority(value: unknown): TaskPriority {
   if (typeof value === "string" && isTaskPriority(value)) {
     return value;
@@ -46,6 +58,14 @@ function parseStatus(value: unknown): TaskStatus {
   }
 
   return "todo";
+}
+
+function parseCategory(value: unknown): TaskCategory {
+  if (typeof value === "string" && isTaskCategory(value)) {
+    return value;
+  }
+
+  return "work";
 }
 
 function parseCreatePayload(payload: unknown): { data: TaskInput } | { error: string } {
@@ -64,6 +84,8 @@ function parseCreatePayload(payload: unknown): { data: TaskInput } | { error: st
       title,
       description: normalizeText(body.description, MAX_DESCRIPTION_LENGTH),
       priority: parsePriority(body.priority),
+      category: parseCategory(body.category),
+      imageUrl: normalizeImageUrl(body.imageUrl),
       status: parseStatus(body.status),
       dueDate: normalizeDueDate(body.dueDate),
     },

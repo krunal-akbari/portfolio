@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import { requireAllowedUser } from "@/lib/auth";
 import { deleteTask, getTask, updateTask } from "@/lib/task-store";
 import {
+  isTaskCategory,
   isTaskPriority,
   isTaskStatus,
+  type TaskCategory,
   type TaskUpdateInput,
   type TaskPriority,
   type TaskStatus,
@@ -14,6 +16,7 @@ export const runtime = "nodejs";
 
 const MAX_TITLE_LENGTH = 140;
 const MAX_DESCRIPTION_LENGTH = 5000;
+const MAX_IMAGE_URL_LENGTH = 2000;
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -36,6 +39,15 @@ function normalizeDueDate(value: unknown): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
 }
 
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim().slice(0, MAX_IMAGE_URL_LENGTH);
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parsePriority(value: unknown): TaskPriority | null {
   if (typeof value !== "string" || !isTaskPriority(value)) {
     return null;
@@ -46,6 +58,14 @@ function parsePriority(value: unknown): TaskPriority | null {
 
 function parseStatus(value: unknown): TaskStatus | null {
   if (typeof value !== "string" || !isTaskStatus(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function parseCategory(value: unknown): TaskCategory | null {
+  if (typeof value !== "string" || !isTaskCategory(value)) {
     return null;
   }
 
@@ -72,12 +92,24 @@ function parseUpdatePayload(payload: unknown): { data: TaskUpdateInput } | { err
     updates.description = normalizeText(body.description, MAX_DESCRIPTION_LENGTH);
   }
 
+  if ("imageUrl" in body) {
+    updates.imageUrl = normalizeImageUrl(body.imageUrl);
+  }
+
   if ("priority" in body) {
     const priority = parsePriority(body.priority);
     if (!priority) {
       return { error: "Invalid priority" };
     }
     updates.priority = priority;
+  }
+
+  if ("category" in body) {
+    const category = parseCategory(body.category);
+    if (!category) {
+      return { error: "Invalid category" };
+    }
+    updates.category = category;
   }
 
   if ("status" in body) {

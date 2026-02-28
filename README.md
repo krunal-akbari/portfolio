@@ -9,11 +9,14 @@ A single-user task planner built with Next.js + WorkOS AuthKit.
 - Jira-style task fields:
   - title
   - description
+  - image URL
   - priority (`low`, `medium`, `high`, `critical`)
+  - category (`work`, `personal`, `social`)
   - status (`todo`, `in_progress`, `done`)
   - due date
-- Tabbed workspace (`Kanban`, `Calendar`, `Settings`)
-- Google Calendar + Apple Calendar sync controls in `Settings`
+- Workspace modes (`Kanban`, `Calendar`, `Settings`, `SWOT`)
+- Header search + quick add controls
+- Calendar sync controls in `Settings` (auto-sync after one-time subscription)
 
 ## 1) Configure WorkOS
 
@@ -66,7 +69,13 @@ Build and run:
 
 ```bash
 docker build -t glass-todo .
-docker run --rm -p 3000:3000 --env-file .env.local glass-todo
+docker run --rm -p 3000:3000 -v glass-todo-data:/data --env-file .env.local glass-todo
+```
+
+Quick local mode (no WorkOS env required):
+
+```bash
+docker run --rm -p 3000:3000 -v glass-todo-data:/data glass-todo
 ```
 
 ## Vercel (free tier)
@@ -82,7 +91,7 @@ Works on Vercel free tier with standard Next.js config.
 
 ## Storage note
 
-Task data is stored in a JSON file (default `/tmp/glass-todo-tasks.json`).
+Task data is stored in a JSON file (default `/tmp/glass-todo-tasks.json` in app runtime, `/data/tasks.json` in Docker image).
 
 - Good for local/dev and single-instance Docker.
 - In serverless environments (including Vercel), `/tmp` is ephemeral and can reset between instances.

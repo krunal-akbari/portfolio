@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
+  isTaskCategory,
   isTaskPriority,
   isTaskStatus,
   type Task,
@@ -36,6 +37,7 @@ function coerceTask(candidate: unknown): Task | null {
   }
 
   const input = candidate as Partial<Task>;
+  const category = input.category;
   const priority = input.priority;
   const status = input.status;
 
@@ -63,6 +65,11 @@ function coerceTask(candidate: unknown): Task | null {
     title: input.title,
     description: input.description,
     priority,
+    category:
+      typeof category === "string" && isTaskCategory(category)
+        ? category
+        : "work",
+    imageUrl: typeof input.imageUrl === "string" ? input.imageUrl : null,
     status,
     dueDate,
     createdAt: input.createdAt,
@@ -125,6 +132,8 @@ export async function createTask(input: TaskInput) {
       title: input.title,
       description: input.description,
       priority: input.priority,
+      category: input.category,
+      imageUrl: input.imageUrl,
       status: input.status,
       dueDate: input.dueDate,
       createdAt: now,

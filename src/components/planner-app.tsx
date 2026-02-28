@@ -1,19 +1,25 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  TASK_CATEGORY_VALUES,
   TASK_PRIORITY_VALUES,
   TASK_STATUS_VALUES,
   type Task,
+  type TaskCategory,
   type TaskPriority,
   type TaskStatus,
 } from "@/lib/task-types";
 
-type PlannerTab = "kanban" | "calendar" | "settings";
+type PlannerTab = "kanban" | "calendar" | "settings" | "matrix";
+type ThemeMode = "light" | "dark";
 
 type PlannerAppProps = {
   initialTab?: PlannerTab;
+  userEmail?: string | null;
+  localMode?: boolean;
+  signOutAction?: () => Promise<void>;
 };
 
 type SyncLinks = {
@@ -31,11 +37,25 @@ type TasksResponse = {
   tasks: Task[];
 };
 
-const TABS: Array<{ id: PlannerTab; label: string }> = [
-  { id: "kanban", label: "Kanban" },
-  { id: "calendar", label: "Calendar" },
-  { id: "settings", label: "Settings" },
-];
+type TaskDraft = {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  category: TaskCategory;
+  dueDate: string;
+  imageUrl: string;
+};
+
+type MatrixBucket = "need_urgent" | "avoidable_urgent" | "need_not_urgent" | "avoidable_not_urgent";
+
+type MatrixBuckets = {
+  need_urgent: Task[];
+  avoidable_urgent: Task[];
+  need_not_urgent: Task[];
+  avoidable_not_urgent: Task[];
+};
+
+const THEME_STORAGE_KEY = "planner-theme-mode";
 
 const STATUS_COLUMNS: Array<{ status: TaskStatus; title: string }> = [
   { status: "todo", title: "To Do" },
@@ -56,6 +76,46 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   done: "Done",
 };
 
+const CATEGORY_LABEL: Record<TaskCategory, string> = {
+  work: "Work",
+  personal: "Personal",
+  social: "Social",
+};
+
+const CATEGORY_ICON: Record<TaskCategory, string> = {
+  work: "W",
+  personal: "P",
+  social: "S",
+};
+
+const MATRIX_LABEL: Record<MatrixBucket, string> = {
+  need_urgent: "Need to Done + Urgent",
+  avoidable_urgent: "Avoidable + Urgent",
+  need_not_urgent: "Need to Done + Not Urgent",
+  avoidable_not_urgent: "Avoidable + Not Urgent",
+};
+
+const MATRIX_SHORT_LABEL: Record<MatrixBucket, string> = {
+  need_urgent: "Need + Urgent",
+  avoidable_urgent: "Avoid + Urgent",
+  need_not_urgent: "Need + Not Urgent",
+  avoidable_not_urgent: "Avoid + Not Urgent",
+};
+
+const MATRIX_DESCRIPTION: Record<MatrixBucket, string> = {
+  need_urgent: "Do first",
+  avoidable_urgent: "Limit or delegate",
+  need_not_urgent: "Plan and schedule",
+  avoidable_not_urgent: "Defer or drop",
+};
+
+const MATRIX_ORDER: MatrixBucket[] = [
+  "need_urgent",
+  "avoidable_urgent",
+  "need_not_urgent",
+  "avoidable_not_urgent",
+];
+
 const STATUS_INDEX: Record<TaskStatus, number> = {
   todo: 0,
   in_progress: 1,
@@ -69,12 +129,14 @@ const PRIORITY_WEIGHT: Record<TaskPriority, number> = {
   low: 1,
 };
 
-function createDraft() {
+function createDraft(dueDate = ""): TaskDraft {
   return {
     title: "",
     description: "",
-    priority: "medium" as TaskPriority,
-    dueDate: "",
+    priority: "medium",
+    category: "work",
+    dueDate,
+    imageUrl: "",
   };
 }
 
@@ -142,6 +204,132 @@ function sortTasks(tasks: Task[]) {
   });
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function taskStrength(task: Task) {
+  let score =
+    task.priority === "critical"
+      ? 90
+      : task.priority === "high"
+        ? 72
+        : task.priority === "medium"
+          ? 54
+          : 35;
+
+  if (task.dueDate) {
+    const due = new Date(`${task.dueDate}T00:00:00`);
+    const today = new Date();
+    const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const daysUntilDue = Math.floor((due.getTime() - now.getTime()) / 86_400_000);
+
+    if (daysUntilDue < 0) {
+      score += 16;
+    } else if (daysUntilDue === 0) {
+      score += 14;
+    } else if (daysUntilDue <= 2) {
+      score += 10;
+    } else if (daysUntilDue <= 7) {
+      score += 6;
+    }
+  }
+
+  if (task.category === "work") {
+    score += 4;
+  }
+
+  if (task.status === "in_progress") {
+    score += 3;
+  }
+
+  if (task.status === "done") {
+    score -= 24;
+  }
+
+  const value = clamp(score, 10, 99);
+  const label =
+    value >= 85
+      ? "Very Strong"
+      : value >= 65
+        ? "Strong"
+        : value >= 45
+          ? "Balanced"
+          : "Light";
+
+  return { value, label };
+}
+
+function matchesSearch(task: Task, query: string) {
+  if (!query) {
+    return true;
+  }
+
+  const q = query.toLowerCase();
+  return (
+    task.title.toLowerCase().includes(q) ||
+    task.description.toLowerCase().includes(q) ||
+    PRIORITY_LABEL[task.priority].toLowerCase().includes(q) ||
+    STATUS_LABEL[task.status].toLowerCase().includes(q) ||
+    CATEGORY_LABEL[task.category].toLowerCase().includes(q)
+  );
+}
+
+function dueDayOffset(task: Task) {
+  if (!task.dueDate) {
+    return null;
+  }
+
+  const due = new Date(`${task.dueDate}T00:00:00`);
+  const today = new Date();
+  const now = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.floor((due.getTime() - now.getTime()) / 86_400_000);
+}
+
+function isUrgentTask(task: Task) {
+  if (task.status === "done") {
+    return false;
+  }
+
+  if (task.priority === "critical" || task.priority === "high") {
+    return true;
+  }
+
+  const dueOffset = dueDayOffset(task);
+  if (dueOffset === null) {
+    return false;
+  }
+
+  return dueOffset <= 1;
+}
+
+function isNeedToDoneTask(task: Task) {
+  if (task.category === "work" || task.status === "in_progress") {
+    return true;
+  }
+
+  return task.priority === "critical" || task.priority === "high" || task.priority === "medium";
+}
+
+function matrixBucket(task: Task): MatrixBucket {
+  const urgent = isUrgentTask(task);
+  const needToDone = isNeedToDoneTask(task);
+
+  if (needToDone && urgent) {
+    return "need_urgent";
+  }
+
+  if (!needToDone && urgent) {
+    return "avoidable_urgent";
+  }
+
+  if (needToDone) {
+    return "need_not_urgent";
+  }
+
+  return "avoidable_not_urgent";
+}
+
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
     ...init,
@@ -164,13 +352,19 @@ async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Pro
   return payload as T;
 }
 
-export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
+export function PlannerApp({
+  initialTab = "kanban",
+  userEmail = null,
+  localMode = false,
+  signOutAction,
+}: PlannerAppProps) {
   const [activeTab, setActiveTab] = useState<PlannerTab>(initialTab);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState(createDraft);
+  const [draft, setDraft] = useState<TaskDraft>(createDraft);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [monthCursor, setMonthCursor] = useState(() => {
     const today = new Date();
@@ -179,10 +373,34 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
   const [selectedDay, setSelectedDay] = useState(() => toDateKey(new Date()));
   const [syncLinks, setSyncLinks] = useState<SyncLinks | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const createTitleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (saved === "light" || saved === "dark") {
+        setThemeMode(saved);
+      }
+    } catch {
+      // Ignore browser storage restrictions.
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = themeMode;
+    document.documentElement.style.colorScheme = themeMode;
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    } catch {
+      // Ignore browser storage restrictions.
+    }
+  }, [themeMode]);
 
   const refreshTasks = useCallback(async () => {
     setLoading(true);
@@ -218,15 +436,30 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
     void refreshSyncLinks();
   }, [refreshSyncLinks, refreshTasks]);
 
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => matchesSearch(task, searchQuery.trim())),
+    [searchQuery, tasks],
+  );
+
+  useEffect(() => {
+    setSelectedTaskId((current) => {
+      if (current && visibleTasks.some((task) => task.id === current)) {
+        return current;
+      }
+
+      return visibleTasks[0]?.id ?? null;
+    });
+  }, [visibleTasks]);
+
   const selectedTask = useMemo(
-    () => tasks.find((task) => task.id === selectedTaskId) ?? null,
-    [selectedTaskId, tasks],
+    () => visibleTasks.find((task) => task.id === selectedTaskId) ?? null,
+    [selectedTaskId, visibleTasks],
   );
 
   const tasksByDate = useMemo(() => {
     const map = new Map<string, Task[]>();
 
-    for (const task of tasks) {
+    for (const task of visibleTasks) {
       if (!task.dueDate) {
         continue;
       }
@@ -238,9 +471,32 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
     }
 
     return map;
-  }, [tasks]);
+  }, [visibleTasks]);
 
   const dayTasks = tasksByDate.get(selectedDay) ?? [];
+  const calendarDays = useMemo(() => monthGrid(monthCursor), [monthCursor]);
+
+  const taskMatrix = useMemo<MatrixBuckets>(() => {
+    const buckets: MatrixBuckets = {
+      need_urgent: [],
+      avoidable_urgent: [],
+      need_not_urgent: [],
+      avoidable_not_urgent: [],
+    };
+
+    for (const task of visibleTasks) {
+      buckets[matrixBucket(task)].push(task);
+    }
+
+    return buckets;
+  }, [visibleTasks]);
+
+  function jumpToCreate() {
+    setActiveTab("kanban");
+    setTimeout(() => {
+      createTitleRef.current?.focus();
+    }, 0);
+  }
 
   async function createTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -261,6 +517,8 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
           title,
           description: draft.description,
           priority: draft.priority,
+          category: draft.category,
+          imageUrl: draft.imageUrl || null,
           dueDate: draft.dueDate || null,
           status: "todo",
         }),
@@ -338,6 +596,8 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
       title: String(formData.get("title") ?? "").trim(),
       description: String(formData.get("description") ?? "").trim(),
       priority: String(formData.get("priority") ?? "medium"),
+      category: String(formData.get("category") ?? "work"),
+      imageUrl: String(formData.get("imageUrl") ?? "").trim() || null,
       status: String(formData.get("status") ?? "todo"),
       dueDate: String(formData.get("dueDate") ?? "").trim() || null,
     };
@@ -362,33 +622,76 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
     try {
       await navigator.clipboard.writeText(syncLinks.feedUrl);
       setCopyMessage("Copied");
-      setTimeout(() => setCopyMessage(null), 1800);
+      setTimeout(() => setCopyMessage(null), 1500);
     } catch {
       setCopyMessage("Copy failed");
-      setTimeout(() => setCopyMessage(null), 1800);
+      setTimeout(() => setCopyMessage(null), 1500);
     }
   }
 
-  const calendarDays = useMemo(() => monthGrid(monthCursor), [monthCursor]);
-
   return (
     <>
-      <section className="glass-card tabs-shell" role="tablist" aria-label="Planner tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            className={activeTab === tab.id ? "tab-btn active" : "tab-btn"}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </section>
-
       {error ? <p className="glass-card error-banner">{error}</p> : null}
+
+      <header className="glass-card top-header planner-main-header">
+        <div className="brand-wrap">
+          <span className="logo-mark" aria-hidden>
+            GP
+          </span>
+          <div>
+            <h1>Glass Planner</h1>
+            <p className="subtle">{localMode ? "Local mode (auth disabled)" : userEmail}</p>
+          </div>
+        </div>
+
+        <label className="search-field header-search">
+          <span aria-hidden>F</span>
+          <input
+            type="search"
+            placeholder="Find to-dos"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+        </label>
+
+        <div className="toolbar-actions">
+          <button type="button" className="secondary-btn" onClick={jumpToCreate}>
+            + Add To-Do
+          </button>
+          <button
+            type="button"
+            className={activeTab === "kanban" ? "icon-btn active" : "icon-btn"}
+            onClick={() => setActiveTab("kanban")}
+            aria-label="Open Kanban"
+          >
+            K
+          </button>
+          <button
+            type="button"
+            className={activeTab === "calendar" ? "icon-btn active" : "icon-btn"}
+            onClick={() => setActiveTab("calendar")}
+            aria-label="Open Calendar"
+          >
+            C
+          </button>
+          <button
+            type="button"
+            className={activeTab === "settings" ? "icon-btn active" : "icon-btn"}
+            onClick={() => setActiveTab("settings")}
+            aria-label="Open Settings"
+          >
+            S
+          </button>
+          <button
+            type="button"
+            className={activeTab === "matrix" ? "icon-btn active" : "icon-btn"}
+            onClick={() => setActiveTab("matrix")}
+            aria-label="Open Priority Matrix"
+          >
+            M
+          </button>
+        </div>
+      </header>
 
       {activeTab === "kanban" ? (
         <>
@@ -397,6 +700,7 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
               <h2>Create Task</h2>
               <form className="create-form" onSubmit={createTask}>
                 <input
+                  ref={createTitleRef}
                   type="text"
                   placeholder="Task title"
                   maxLength={140}
@@ -411,7 +715,14 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                     setDraft((prev) => ({ ...prev, description: event.target.value }))
                   }
                 />
-                <div className="form-row">
+                <input
+                  type="url"
+                  placeholder="Task image URL"
+                  value={draft.imageUrl}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, imageUrl: event.target.value }))}
+                  required
+                />
+                <div className="form-row form-row-create">
                   <select
                     value={draft.priority}
                     onChange={(event) =>
@@ -424,11 +735,28 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="date"
-                    value={draft.dueDate}
-                    onChange={(event) => setDraft((prev) => ({ ...prev, dueDate: event.target.value }))}
-                  />
+                  <select
+                    value={draft.category}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, category: event.target.value as TaskCategory }))
+                    }
+                  >
+                    {TASK_CATEGORY_VALUES.map((category) => (
+                      <option key={category} value={category}>
+                        {CATEGORY_LABEL[category]}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="date-field">
+                    <span aria-hidden>D</span>
+                    <input
+                      type="date"
+                      value={draft.dueDate}
+                      onChange={(event) =>
+                        setDraft((prev) => ({ ...prev, dueDate: event.target.value }))
+                      }
+                    />
+                  </label>
                   <button type="submit" disabled={busy}>
                     {busy ? "Saving..." : "Create"}
                   </button>
@@ -444,6 +772,13 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                 <form key={selectedTask.id} className="detail-form" onSubmit={saveDetails}>
                   <input name="title" defaultValue={selectedTask.title} maxLength={140} required />
                   <textarea name="description" defaultValue={selectedTask.description} maxLength={5000} />
+                  <input
+                    name="imageUrl"
+                    type="url"
+                    defaultValue={selectedTask.imageUrl ?? ""}
+                    placeholder="Task image URL"
+                    required
+                  />
                   <div className="form-row">
                     <select name="status" defaultValue={selectedTask.status}>
                       {TASK_STATUS_VALUES.map((status) => (
@@ -459,8 +794,24 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                         </option>
                       ))}
                     </select>
-                    <input name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ""} />
+                    <select name="category" defaultValue={selectedTask.category}>
+                      {TASK_CATEGORY_VALUES.map((category) => (
+                        <option key={category} value={category}>
+                          {CATEGORY_LABEL[category]}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
+                  <label className="date-field">
+                    <span aria-hidden>D</span>
+                    <input name="dueDate" type="date" defaultValue={selectedTask.dueDate ?? ""} />
+                  </label>
+
+                  <p className="task-strength-note">
+                    Matrix Assignment: <strong>{MATRIX_LABEL[matrixBucket(selectedTask)]}</strong> | Signal{" "}
+                    <strong>{taskStrength(selectedTask).value}/100</strong> ({taskStrength(selectedTask).label})
+                  </p>
 
                   <div className="detail-actions">
                     <button type="submit" disabled={busy}>
@@ -481,7 +832,7 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
 
           <section className="kanban-layout">
             {STATUS_COLUMNS.map((column) => {
-              const columnTasks = tasks.filter((task) => task.status === column.status);
+              const columnTasks = visibleTasks.filter((task) => task.status === column.status);
 
               return (
                 <article key={column.status} className="glass-card kanban-column">
@@ -494,44 +845,67 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                     {loading ? <p className="subtle">Loading...</p> : null}
                     {!loading && columnTasks.length === 0 ? <p className="column-empty">No tasks</p> : null}
 
-                    {columnTasks.map((task) => (
-                      <article
-                        key={task.id}
-                        className={`task-card ${task.id === selectedTaskId ? "selected" : ""}`}
-                        onClick={() => setSelectedTaskId(task.id)}
-                      >
-                        <header>
-                          <h4>{task.title}</h4>
-                          <span className={`priority-chip priority-${task.priority}`}>
-                            {PRIORITY_LABEL[task.priority]}
-                          </span>
-                        </header>
-                        <p className="task-meta">{formatDisplayDate(task.dueDate)}</p>
+                    {columnTasks.map((task) => {
+                      const strength = taskStrength(task);
+                      const bucket = matrixBucket(task);
 
-                        <div className="task-actions">
-                          <button
-                            type="button"
-                            className="secondary-btn compact-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void moveTask(task, "left");
-                            }}
-                          >
-                            Left
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary-btn compact-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void moveTask(task, "right");
-                            }}
-                          >
-                            Right
-                          </button>
-                        </div>
-                      </article>
-                    ))}
+                      return (
+                        <article
+                          key={task.id}
+                          className={`task-card ${task.id === selectedTaskId ? "selected" : ""}`}
+                          onClick={() => setSelectedTaskId(task.id)}
+                        >
+                          <header>
+                            <h4>{task.title}</h4>
+                            <span className={`priority-chip priority-${task.priority}`}>
+                              {PRIORITY_LABEL[task.priority]}
+                            </span>
+                          </header>
+
+                          <div className="task-image-wrap">
+                            {task.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img className="task-image" src={task.imageUrl} alt={task.title} />
+                            ) : (
+                              <div className="task-image placeholder">No image</div>
+                            )}
+                          </div>
+
+                          <div className="task-tags">
+                            <span className={`category-chip category-${task.category}`}>
+                              {CATEGORY_ICON[task.category]} {CATEGORY_LABEL[task.category]}
+                            </span>
+                            <span className={`matrix-chip matrix-${bucket}`}>{MATRIX_SHORT_LABEL[bucket]}</span>
+                            <span className="strength-chip">S {strength.value}</span>
+                          </div>
+
+                          <p className="task-meta">{formatDisplayDate(task.dueDate)}</p>
+
+                          <div className="task-actions">
+                            <button
+                              type="button"
+                              className="secondary-btn compact-btn"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void moveTask(task, "left");
+                              }}
+                            >
+                              Left
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-btn compact-btn"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void moveTask(task, "right");
+                              }}
+                            >
+                              Right
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 </article>
               );
@@ -543,7 +917,11 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
       {activeTab === "calendar" ? (
         <section className="glass-card calendar-card">
           <header className="calendar-toolbar">
-            <h2>Calendar</h2>
+            <div>
+              <h2>Calendar</h2>
+              <p className="subtle">Tasks auto-sync to Google/Apple after one-time subscription in Settings.</p>
+            </div>
+
             <div className="calendar-nav">
               <button
                 type="button"
@@ -603,7 +981,7 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
                 <div>
                   <p>{task.title}</p>
                   <span>
-                    {PRIORITY_LABEL[task.priority]} · {STATUS_LABEL[task.status]}
+                    {CATEGORY_LABEL[task.category]} - {PRIORITY_LABEL[task.priority]} - {taskStrength(task).value}
                   </span>
                 </div>
                 <button
@@ -626,30 +1004,104 @@ export function PlannerApp({ initialTab = "kanban" }: PlannerAppProps) {
         <section className="glass-card settings-card">
           <h2>Settings</h2>
 
-          <section className="sync-card">
-            <h3>Calendar Sync</h3>
-            <div className="sync-actions">
-              <a className="secondary-btn compact-btn" href={syncLinks?.googleUrl ?? "#"} target="_blank" rel="noreferrer">
-                Google Subscribe
+          <section className="settings-row">
+            <h3>Sync</h3>
+            <div className="sync-actions sync-icons">
+              <a className="icon-btn" href={syncLinks?.googleUrl ?? "#"} target="_blank" rel="noreferrer" title="Google sync">
+                G
               </a>
-              <a className="secondary-btn compact-btn" href={syncLinks?.appleUrl ?? "#"}>
-                Apple Subscribe
+              <a className="icon-btn" href={syncLinks?.appleUrl ?? "#"} title="Apple sync">
+                A
               </a>
-              <a className="secondary-btn compact-btn" href={syncLinks?.feedUrl ?? "#"} target="_blank" rel="noreferrer">
-                Open ICS
+              <a className="icon-btn" href={syncLinks?.feedUrl ?? "#"} target="_blank" rel="noreferrer" title="Open ICS">
+                ICS
               </a>
               <button
                 type="button"
-                className="secondary-btn compact-btn"
+                className="icon-btn"
                 onClick={() => void copyFeedUrl()}
                 disabled={!syncLinks?.feedUrl}
+                title="Copy feed URL"
               >
-                Copy Feed URL
+                CP
               </button>
             </div>
-            <input readOnly value={syncLinks?.feedUrl ?? ""} placeholder="Feed URL" />
             {copyMessage ? <p className="subtle">{copyMessage}</p> : null}
           </section>
+
+          <section className="settings-row">
+            <h3>Theme</h3>
+            <div className="theme-buttons">
+              <button
+                type="button"
+                className={themeMode === "light" ? "secondary-btn active-theme" : "secondary-btn"}
+                onClick={() => setThemeMode("light")}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                className={themeMode === "dark" ? "secondary-btn active-theme" : "secondary-btn"}
+                onClick={() => setThemeMode("dark")}
+              >
+                Dark
+              </button>
+            </div>
+          </section>
+
+          <section className="settings-row">
+            <h3>Logout</h3>
+            {signOutAction ? (
+              <form action={signOutAction}>
+                <button type="submit" className="danger-btn compact-btn">
+                  Logout
+                </button>
+              </form>
+            ) : (
+              <button type="button" className="danger-btn compact-btn" disabled>
+                Logout
+              </button>
+            )}
+          </section>
+        </section>
+      ) : null}
+
+      {activeTab === "matrix" ? (
+        <section className="glass-card matrix-card">
+          <header>
+            <h2>Priority Matrix</h2>
+            <p className="subtle">Each task is auto-assigned into your 4 requested quadrants.</p>
+          </header>
+
+          <div className="matrix-grid">
+            {MATRIX_ORDER.map((bucket) => (
+              <article key={bucket} className={`matrix-box matrix-${bucket}`}>
+                <h3>{MATRIX_LABEL[bucket]}</h3>
+                <p className="subtle">{MATRIX_DESCRIPTION[bucket]}</p>
+                <div className="matrix-list">
+                  {taskMatrix[bucket].length === 0 ? <p className="subtle">No tasks</p> : null}
+                  {taskMatrix[bucket].map((task) => (
+                    <article key={task.id} className="matrix-item">
+                      {task.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={task.imageUrl} alt={task.title} className="matrix-thumb" />
+                      ) : (
+                        <div className="matrix-thumb placeholder">No image</div>
+                      )}
+                      <div>
+                        <p>{task.title}</p>
+                        <span>
+                          {PRIORITY_LABEL[task.priority]} | {CATEGORY_LABEL[task.category]} | S
+                          {" "}
+                          {taskStrength(task).value}
+                        </span>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       ) : null}
     </>
