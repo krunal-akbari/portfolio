@@ -13,7 +13,7 @@ import {
 } from "@/lib/task-types";
 
 type PlannerTab = "kanban" | "calendar" | "settings" | "matrix";
-type ThemeMode = "light" | "dark";
+type ThemeMode = "dark";
 
 type PlannerAppProps = {
   initialTab?: PlannerTab;
@@ -359,7 +359,7 @@ export function PlannerApp({
   signOutAction,
 }: PlannerAppProps) {
   const [activeTab, setActiveTab] = useState<PlannerTab>(initialTab);
-  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
+  const [themeMode] = useState<ThemeMode>("dark");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -380,17 +380,6 @@ export function PlannerApp({
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-      if (saved === "light" || saved === "dark") {
-        setThemeMode(saved);
-      }
-    } catch {
-      // Ignore browser storage restrictions.
-    }
-  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -1032,19 +1021,8 @@ export function PlannerApp({
           <section className="settings-row">
             <h3>Theme</h3>
             <div className="theme-buttons">
-              <button
-                type="button"
-                className={themeMode === "light" ? "secondary-btn active-theme" : "secondary-btn"}
-                onClick={() => setThemeMode("light")}
-              >
-                Light
-              </button>
-              <button
-                type="button"
-                className={themeMode === "dark" ? "secondary-btn active-theme" : "secondary-btn"}
-                onClick={() => setThemeMode("dark")}
-              >
-                Dark
+              <button type="button" className="secondary-btn active-theme" disabled>
+                Dark (Locked)
               </button>
             </div>
           </section>

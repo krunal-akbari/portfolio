@@ -14,9 +14,10 @@ A single-user task planner built with Next.js + WorkOS AuthKit.
   - category (`work`, `personal`, `social`)
   - status (`todo`, `in_progress`, `done`)
   - due date
-- Workspace modes (`Kanban`, `Calendar`, `Settings`, `SWOT`)
+- Workspace modes (`Kanban`, `Calendar`, `Settings`, `Priority Matrix`)
 - Header search + quick add controls
 - Calendar sync controls in `Settings` (auto-sync after one-time subscription)
+- Supabase-backed task persistence (with file fallback if Supabase is not configured)
 
 ## 1) Configure WorkOS
 
@@ -45,7 +46,9 @@ APP_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_WORKOS_REDIRECT_URI=http://localhost:3000/callback
 ALLOWED_EMAIL=you@example.com
 CALENDAR_FEED_TOKEN=replace-with-a-random-long-secret
-TASKS_STORAGE_FILE=/tmp/glass-todo-tasks.json
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_TASKS_TABLE=tasks
 ```
 
 Notes:
@@ -53,8 +56,31 @@ Notes:
 - `WORKOS_COOKIE_PASSWORD` must be at least 32 characters.
 - `APP_BASE_URL` must match where you open the app.
 - `CALENDAR_FEED_TOKEN` enables external calendar subscription (Google/Apple) without browser auth.
+- Use `SUPABASE_SERVICE_ROLE_KEY` (server key), not the publishable/anon key, for server-side task writes.
+- If you already added misspelled keys, the app also supports `SUPPERBASE_PROJECT_URI` and `SUPPERBASE_KEY`.
 
-## 3) Run locally
+## 3) Create Supabase table
+
+Run this in Supabase SQL Editor:
+
+```sql
+create table if not exists public.tasks (
+  id text primary key,
+  title text not null,
+  description text not null default '',
+  priority text not null check (priority in ('low', 'medium', 'high', 'critical')),
+  category text not null check (category in ('work', 'personal', 'social')),
+  image_url text null,
+  status text not null check (status in ('todo', 'in_progress', 'done')),
+  due_date date null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists tasks_updated_at_idx on public.tasks (updated_at desc);
+```
+
+## 4) Run locally
 
 ```bash
 npm install
@@ -63,7 +89,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Docker
+## 5) Docker
 
 Build and run:
 
@@ -78,7 +104,7 @@ Quick local mode (no WorkOS env required):
 docker run --rm -p 3000:3000 -v glass-todo-data:/data glass-todo
 ```
 
-## Vercel (free tier)
+## 6) Vercel (free tier)
 
 Works on Vercel free tier with standard Next.js config.
 
@@ -88,14 +114,17 @@ Works on Vercel free tier with standard Next.js config.
 4. Set WorkOS redirect URI to your deployed callback URL:
    - `https://your-project.vercel.app/callback`
 5. Set `APP_BASE_URL` and `NEXT_PUBLIC_WORKOS_REDIRECT_URI` to your deployed domain.
+6. Add Supabase vars in Vercel:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `SUPABASE_TASKS_TABLE` (`tasks`)
 
 ## Storage note
 
-Task data is stored in a JSON file (default `/tmp/glass-todo-tasks.json` in app runtime, `/data/tasks.json` in Docker image).
+Task data uses Supabase when configured. If Supabase env is missing, app falls back to JSON file storage (`.data/glass-todo-tasks.json`, or `TASKS_STORAGE_FILE` if set).
 
-- Good for local/dev and single-instance Docker.
-- In serverless environments (including Vercel), `/tmp` is ephemeral and can reset between instances.
-- For durable production storage, connect a database.
+- Supabase mode is durable and recommended for Vercel.
+- File mode is good for local/dev and single-instance Docker.
 
 ## Project structure
 
@@ -105,4 +134,4 @@ Task data is stored in a JSON file (default `/tmp/glass-todo-tasks.json` in app 
 - `src/app/api/calendar/ics/route.ts`: ICS feed for calendar sync
 - `src/app/api/calendar/feed-url/route.ts`: feed/subscription URLs
 - `src/components/planner-app.tsx`: Kanban + calendar UI
-- `src/lib/task-store.ts`: JSON-backed task storage
+- `src/lib/task-store.ts`: Supabase-backed task storage with file fallback
